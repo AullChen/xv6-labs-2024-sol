@@ -12,9 +12,11 @@ main(int argc, char *argv[])
     exit(1);
   }
   char *end = sbrk(PGSIZE*32);
+  //printf("size: %p\n", end);
   end = end + 9 * PGSIZE;
   strcpy(end, "my very very very secret pw is:   ");
   strcpy(end+32, argv[1]);
+  //printf("end: %p\n", end);
   exit(0);
 }
 
