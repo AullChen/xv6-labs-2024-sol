@@ -1,2 +1,37 @@
-just for "make grade".
-maybe i'll write it st im free.
+Attack中为什么是 +PGSIZE*16 ？
+6.S081(2024) Lab Attack xv6
+下面分析中的所有页面编号均从0开始。
+最关键的点在于理解在 attacktest 中的 kmem.freelist 和 freerange 。
+在程序刚刚开始时，整个内存页表为空， kmem.freelist 指向Page(0)。
+接下来，程序调用了 fork() 函数，由 kernel/proc.c 可知，这个函数一共申请了10页内存（ static
+struct proc* allocproc(void) 1页， proc_pagetable 3页， uvmcopy 6页），其页号为0~9。
+随后，父进程暂停，程序进入子进程，运行 secret 。
+在子进程中，首先调用的 exec() 函数。查看 kernel/exec.c ，我们得知，这个函数将系统转入内核态，并分
+配了11页内存（ proc_pagetable 3页， exec 分配4页， ELF headers 加载2页， USERSTACK=1 分配2页，
+页号为10~20）；接下来退出内核态，这将释放一些内存。这时 exec.c 调用了函数 proc_freeoagetable 。
+我们查看 proc.c ，发现它首先按顺序释放了页号为 4 、 7 、 8 、 9 的父进
+程 .text 、 .data 、 .guard 、 .stack 存放页。然后 uvmfree 函数遵循低地址到高地址、L0到L2的顺序释
+放了第 6 、 3 、 5 、 2 、 1 页的 pagetable pages 。释放完成后程序将回到 sys_exec ，这个进程释放了由
+proc_pagetable 分配的编号 10 、 11 的用于储存 newargv[0] 和 newargv[1] 的页面。
+需要特别注意的是，由于储存释放页面的 kmem.freelist 是一个FILO的链表，总是指向最后一个被释放的页
+面，当我们再次分配这些页面的时候，它们将按照上述倒序被使用。
+现在，系统回到了用户态，并执行 secret 函数。这个函数申请了32页内存，并将secret密文放在了申请到的
+第10页上。由上面的分析可知，这个页面对应的物理页面应该是第7页。
+随后，程序调用 freeproc 来清理运行结束的内存页。由 proc.c 可知，这个函数首先会释放 Page0 处的
+trapframe ，然后是进程位于 17 、 18 、 19 、 20 页的 .text 、 .data 、 .guard 、 .stack 数据，接下来则
+是按照分配顺序回收 secret 申请的内存。因此，带有密文的 Page7 是第 15 个被释放的。而我们之前的进程一
+共申请了 42 页内存，这意味着我们需要保证 attack 程序读取的是第 42-15=27 页程序内存。
+接下来， attacktest 进入 attack 部分。程序首先 pipe 了一页内存，然后是跟之前相同的 fork() 申请的
+10 页空间。随后程序调用 exec() 分配了 10 页内存（不需要 newargv[1] ），再释放 fork 中除了
+trapframe 的 9 页内存，然后是第 12 页的 newargv[0] 。
+历经九九八十一难，我们终于到达了 user/attack.c 运行的地方。由前面的分析可知，我们需要读取到的是 第
+27页 的内存，而程序目前为止分配了 21 页内存并释放了 10 页，这意味着我们需要的数据存储在接下来分配的
+第 27+1-(21-10)=17 页中（+1是因为页面编号从0开始）。
+这就是 +PGSIZE*16 的由来。
+有趣的是，在寻找相关答案的过程中，注意到有另一个题解：
+char* end = sbrk(PGSIZE * 9);
+end = end + PGSIZE * 8;
+write(2, end+16, 8);
+为什么这个位置也能读取到正确的答案呢？初步推测应该是源自于attacktest在 randstring(secret,
+8); 中为密文分配的空间。由于内存清理的问题是全局性的，所以这里生成的密文同样会被留下来。至于为什么
+是 8+16 的组合，留待有空再研究吧

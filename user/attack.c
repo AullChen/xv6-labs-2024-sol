@@ -9,8 +9,11 @@ main(int argc, char *argv[])
   // your code here.  you should write the secret to fd 2 using write
   // (e.g., write(2, secret, 8)
   char* end = sbrk(PGSIZE * 17);
-  end = end + PGSIZE * 16;
+  end = end + PGSIZE * 8;
   //printf("end: %p\n", end);
-  write(2, end+32, 8);
+  write(2, end+16, 8);
   exit(1);
 }
+
+//char* end = sbrk(PGSIZE+17) + PGSIZE*16
+//write(2,end+32,8)
