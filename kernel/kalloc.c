@@ -13,6 +13,7 @@
 #define SUPERPAGES_START (PHYSTOP - SUPERPAGES_NUM * 2 * 1024 * 1024)
 
 void freerange(void *pa_start, void *pa_end);
+void freerange_super(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
