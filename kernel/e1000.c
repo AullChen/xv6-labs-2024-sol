@@ -102,7 +102,24 @@ e1000_transmit(char *buf, int len)
   // a pointer so that it can be freed after send completes.
   //
 
-  
+  acquire(&e1000_lock);
+  uint32 idx = regs[E1000_TDT] % TX_RING_SIZE;
+  if (!(tx_ring[idx].status & E1000_TXD_STAT_DD)) {
+    release(&e1000_lock);
+    return -1;
+  }
+
+  if (tx_bufs[idx]) {
+    kfree(tx_bufs[idx]);
+  }
+
+  tx_ring[idx].addr = (uint64)buf;
+  tx_ring[idx].length = len;
+  tx_ring[idx].cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
+  tx_bufs[idx] = buf;
+  regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
+  release(&e1000_lock);
+
   return 0;
 }
 
@@ -115,6 +132,23 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver a buf for each packet (using net_rx()).
   //
+
+  while (1) {
+    uint32 rdt = regs[E1000_RDT];
+    uint32 idx = (rdt + 1) % RX_RING_SIZE;
+    if (!(rx_ring[idx].status & E1000_RXD_STAT_DD)) {
+      break;
+    }
+    net_rx(rx_bufs[idx], rx_ring[idx].length);
+    char *new_buf = kalloc();
+    if (!new_buf) {
+      panic("e1000_recv: kalloc failed.");
+    }
+    rx_ring[idx].addr = (uint64)new_buf;
+    rx_ring[idx].status = 0;
+    rx_bufs[idx] = new_buf;
+    regs[E1000_RDT] = idx;
+  }
 
 }
 
